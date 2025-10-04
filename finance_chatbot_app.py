@@ -102,11 +102,90 @@ LANGUAGE_STYLES = {
 TIME_HORIZONS = ["Immediate", "30 Days", "Quarter", "Annual", "Multi-Year"]
 
 UPLOADABLE_TYPES = ["pdf", "txt", "md", "csv", "png", "jpg", "jpeg", "webp"]
+THEME_OPTIONS = ["System default", "Light", "Dark"]
+DARK_THEME_CSS = """
+<style>
+.stApp {
+    background-color: #0d1117;
+    color: #f0f6fc;
+}
+[data-testid="stSidebar"] {
+    background-color: #161b22;
+}
+</style>
+"""
+LIGHT_THEME_CSS = """
+<style>
+.stApp {
+    background-color: #ffffff;
+    color: #0c111f;
+}
+[data-testid="stSidebar"] {
+    background-color: #f5f7fb;
+}
+</style>
+"""
+DEFAULT_THEME_CSS = """<style></style>"""
+
+TRANSLATION_DIRECTIONS = {
+    "English ➜ Indonesian": ("English", "Indonesian"),
+    "Indonesian ➜ English": ("Indonesian", "English"),
+}
+
+
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 IMAGE_CAPTION_MODEL = "gemini-1.5-flash-latest"
 MAX_DOCUMENT_CHARS = 6000
 DOCUMENT_PREVIEW_CHARS = 600
 CSV_PREVIEW_ROWS = 80
+
+
+def apply_theme(choice: str):
+    if choice == "Dark":
+        st.markdown(DARK_THEME_CSS, unsafe_allow_html=True)
+    elif choice == "Light":
+        st.markdown(LIGHT_THEME_CSS, unsafe_allow_html=True)
+    else:
+        st.markdown(DEFAULT_THEME_CSS, unsafe_allow_html=True)
+
+
+def translate_text(client, text: str, source_language: str, target_language: str) -> tuple[str, str | None]:
+    if not text.strip():
+        return "", "Please enter text to translate."
+    if client is None:
+        return "", "Translation requires an active Google Gemini client."
+    prompt = (
+        "You are a professional financial translator. Translate the provided text from "
+        f"{source_language} to {target_language} while preserving numbers, currency symbols, and "
+        "important finance terminology. Do not add commentary—return only the translated text."
+    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-1.5-flash-latest",
+            contents=[
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {"text": text},
+                    ],
+                }
+            ],
+        )
+        if hasattr(response, "text") and response.text:
+            return response.text.strip(), None
+        candidates = getattr(response, "candidates", None)
+        if candidates:
+            for candidate in candidates:
+                content = getattr(candidate, "content", None)
+                parts = getattr(content, "parts", None) if content else None
+                if parts:
+                    translated = "\n".join(getattr(part, "text", "") for part in parts if getattr(part, "text", ""))
+                    if translated.strip():
+                        return translated.strip(), None
+        return "", "Translation request returned no text."
+    except Exception as exc:
+        return "", f"Translation failed: {exc}"
 
 
 def truncate_text(text: str, max_chars: int) -> Tuple[str, bool]:
@@ -305,6 +384,17 @@ def build_structured_prompt(
     return "\n\n".join(sections)
 
 
+if "theme_choice" not in st.session_state:
+    st.session_state.theme_choice = THEME_OPTIONS[0]
+if "translation_direction" not in st.session_state:
+    st.session_state.translation_direction = list(TRANSLATION_DIRECTIONS.keys())[0]
+if "translation_input" not in st.session_state:
+    st.session_state.translation_input = ""
+if "translation_output" not in st.session_state:
+    st.session_state.translation_output = ""
+if "translation_error" not in st.session_state:
+    st.session_state.translation_error = ""
+
 with st.sidebar:
     st.header("Assistant Settings")
     google_api_key = st.text_input("Google AI API Key", type="password")
@@ -329,8 +419,30 @@ with st.sidebar:
     include_actions = st.toggle("Include actionable checklist", value=True)
     include_disclaimer = st.toggle("Include compliance reminder", value=True)
     enable_memory = st.toggle("Enable session memory", value=True)
+
+    theme_choice = st.selectbox("Theme", THEME_OPTIONS, index=THEME_OPTIONS.index(st.session_state.theme_choice))
+    st.session_state.theme_choice = theme_choice
     reset_button = st.button("Reset conversation", type="primary")
 
+    with st.expander("Translation helper"):
+        direction = st.selectbox("Direction", list(TRANSLATION_DIRECTIONS.keys()), index=list(TRANSLATION_DIRECTIONS.keys()).index(st.session_state.translation_direction), key="translation_direction_select")
+        st.session_state.translation_direction = direction
+        translation_input = st.text_area("Text to translate", value=st.session_state.translation_input, key="translation_text_input", height=150)
+        translate_button = st.button("Translate", key="translation_button")
+        if translate_button:
+            st.session_state.translation_input = translation_input
+            source_lang, target_lang = TRANSLATION_DIRECTIONS[direction]
+            client = st.session_state.get("genai_client")
+            result, error = translate_text(client, translation_input, source_lang, target_lang)
+            st.session_state.translation_output = result
+            st.session_state.translation_error = error or ""
+        if st.session_state.translation_error:
+            st.error(st.session_state.translation_error)
+        if st.session_state.translation_output:
+            st.text_area("Translated text", value=st.session_state.translation_output, height=150, disabled=True)
+
+
+apply_theme(st.session_state.theme_choice)
 
 if not google_api_key:
     st.info("Add your Google AI API key in the sidebar to start the consultation.", icon="ℹ️")

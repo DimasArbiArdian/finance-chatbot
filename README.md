@@ -9,6 +9,8 @@ An AI-powered financial consultation workspace built with Streamlit and Google G
 - Four pre-built financial playbooks that align with common chatbot use cases: retail banking concierge, financial literacy coach, travel budget strategist, and productivity & savings partner.
 - Rich parameter controls for tone, knowledge domains, risk appetite, planning horizon, actionable outputs, compliance reminders, and session memory.
 - Upload PDF, text, CSV, or image files so the assistant can cite information directly from user-provided material.
+- Switch between light and dark themes from the sidebar to match your workspace.
+- Built-in English ↔ Indonesian translator powered by Gemini for quick bilingual responses.
 - Prompt orchestration that injects the selected configuration into every Gemini call to keep replies on-brief.
 - Session memory snapshot so the bot can recall recent user goals when enabled.
 
@@ -52,10 +54,15 @@ Open the displayed local URL in your browser. Add your Google API key in the sid
 - **Session memory:** Stores up to five recent user prompts to maintain continuity.
 - **Creativity bias:** Adjusts how exploratory or deterministic the assistant should be.
 
+### Theme & Translation
+- Choose **Theme** in the sidebar to toggle between system default, light, and dark palettes.
+- Open the **Translation helper** sidebar expander to convert text between English and Indonesian; the translation result stays available until you clear it.
+- Translated text uses Gemini's `gemini-1.5-flash-latest` model to keep terminology financially accurate.
+
 ### Working with Uploaded Documents
 - Supported formats: PDF, TXT/Markdown, CSV, and common image types (PNG, JPG, WEBP).
 - Each file is trimmed to the first ~6,000 characters to protect model context limits; the UI shows whether content was truncated.
-- Use the **Clear document context** button in the sidebar to remove uploaded references without resetting the conversation.
+- Use the **Clear document context** button under the chat uploader to remove uploaded references without resetting the conversation.
 
 ## Deployment Notes
 - The project is ready for GitHub. Update the repository URL above after pushing.
