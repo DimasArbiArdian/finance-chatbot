@@ -314,13 +314,6 @@ with st.sidebar:
     include_actions = st.toggle("Include actionable checklist", value=True)
     include_disclaimer = st.toggle("Include compliance reminder", value=True)
     enable_memory = st.toggle("Enable session memory", value=True)
-    uploaded_files = st.file_uploader(
-        "Attach reference documents",
-        type=UPLOADABLE_TYPES,
-        accept_multiple_files=True,
-        help="Upload PDF, text, CSV, or image files to ground the assistant's answers.",
-    )
-    clear_docs = st.button("Clear document context")
     reset_button = st.button("Reset conversation", type="primary")
 
 
@@ -339,15 +332,6 @@ if ("genai_client" not in st.session_state) or (st.session_state.get("_last_key"
     st.session_state.pop("chat", None)
     st.session_state.pop("messages", None)
     st.session_state.pop("memory_notes", None)
-
-if uploaded_files is not None:
-    documents, doc_errors = prepare_documents(uploaded_files, st.session_state.genai_client)
-    st.session_state.uploaded_documents = documents
-    st.session_state.document_errors = doc_errors
-
-if clear_docs:
-    st.session_state.uploaded_documents = []
-    st.session_state.document_errors = []
 
 profile_signature = "|".join(
     [
@@ -415,6 +399,28 @@ with config_col:
     st.markdown(f"- Risk appetite: {risk_appetite}")
     st.markdown(f"- Planning horizon: {planning_horizon}")
     st.markdown(f"- Session memory: {'enabled' if enable_memory else 'disabled'}")
+
+with st.chat_message("assistant"):
+    st.markdown("**Attach reference documents (optional)**")
+    uploaded_files = st.file_uploader(
+        "Attach reference documents",
+        type=UPLOADABLE_TYPES,
+        accept_multiple_files=True,
+        key="chat_uploader",
+        label_visibility="collapsed",
+        help="Upload PDF, text, CSV, or image files to ground the assistant's answers.",
+    )
+    clear_docs = st.button("Clear document context", key="chat_clear_docs")
+
+if uploaded_files:
+    documents, doc_errors = prepare_documents(uploaded_files, st.session_state.genai_client)
+    st.session_state.uploaded_documents = documents
+    st.session_state.document_errors = doc_errors
+
+if clear_docs:
+    st.session_state.uploaded_documents = []
+    st.session_state.document_errors = []
+    st.session_state.pop("chat_uploader", None)
 
 if st.session_state.uploaded_documents:
     with st.expander("Attached document excerpts", expanded=False):
