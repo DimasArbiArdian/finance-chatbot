@@ -1,3 +1,4 @@
+import base64
 import io
 from pathlib import Path
 from typing import List, Tuple
@@ -100,7 +101,9 @@ LANGUAGE_STYLES = {
 
 TIME_HORIZONS = ["Immediate", "30 Days", "Quarter", "Annual", "Multi-Year"]
 
-UPLOADABLE_TYPES = ["pdf", "txt", "md", "csv"]
+UPLOADABLE_TYPES = ["pdf", "txt", "md", "csv", "png", "jpg", "jpeg", "webp"]
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+IMAGE_CAPTION_MODEL = "gemini-1.5-flash"
 MAX_DOCUMENT_CHARS = 6000
 DOCUMENT_PREVIEW_CHARS = 600
 CSV_PREVIEW_ROWS = 80
@@ -112,7 +115,50 @@ def truncate_text(text: str, max_chars: int) -> Tuple[str, bool]:
     return text[:max_chars], True
 
 
-def extract_text_from_file(uploaded_file) -> Tuple[str, bool, str | None]:
+
+
+def describe_image_bytes(client, data: bytes, mime_type: str) -> tuple[str, str | None]:
+    if client is None:
+        return "", "No Google client available to interpret the image."
+    payload = base64.b64encode(data).decode("utf-8")
+    try:
+        response = client.models.generate_content(
+            model=IMAGE_CAPTION_MODEL,
+            contents=[
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "Summarise this image focusing on financial data, text, or cues that could help a "
+                                "financial advisor understand the user's situation. Respond with concise bullet "
+                                "points and include any legible figures."
+                            )
+                        },
+                        {"inline_data": {"mime_type": mime_type, "data": payload}},
+                    ],
+                }
+            ],
+        )
+        if hasattr(response, "text") and response.text:
+            return response.text.strip(), None
+        candidates = getattr(response, "candidates", None)
+        if candidates:
+            for candidate in candidates:
+                content = getattr(candidate, "content", None)
+                parts = getattr(content, "parts", None) if content else None
+                if parts:
+                    text_parts = [getattr(part, "text", "") for part in parts]
+                    summary = "\n".join(p for p in text_parts if p)
+
+                    if summary.strip():
+                        return summary.strip(), None
+        return "", "Image analysis returned no text."
+    except Exception as exc:
+        return "", f"Could not interpret image: {exc}"
+
+
+def extract_text_from_file(uploaded_file, client=None) -> Tuple[str, bool, str | None]:
     suffix = Path(uploaded_file.name).suffix.lower()
     try:
         data = uploaded_file.read()
@@ -136,6 +182,11 @@ def extract_text_from_file(uploaded_file) -> Tuple[str, bool, str | None]:
             if len(lines) > CSV_PREVIEW_ROWS:
                 preview += "\n..."
             text = preview
+        elif suffix in IMAGE_TYPES:
+            summary, image_error = describe_image_bytes(client, data, IMAGE_TYPES[suffix])
+            if image_error:
+                return "", False, image_error
+            text = summary
         else:
             return "", False, f"Unsupported file type: {suffix or 'unknown'}"
     except Exception as exc:
@@ -149,11 +200,11 @@ def extract_text_from_file(uploaded_file) -> Tuple[str, bool, str | None]:
     return truncated_text, truncated, None
 
 
-def prepare_documents(files) -> Tuple[List[dict], List[str]]:
+def prepare_documents(files, client) -> Tuple[List[dict], List[str]]:
     documents = []
     errors = []
     for uploaded_file in files:
-        content, truncated, error = extract_text_from_file(uploaded_file)
+        content, truncated, error = extract_text_from_file(uploaded_file, client)
         if error:
             errors.append(f"{uploaded_file.name}: {error}")
             continue
@@ -267,7 +318,7 @@ with st.sidebar:
         "Attach reference documents",
         type=UPLOADABLE_TYPES,
         accept_multiple_files=True,
-        help="Upload PDF, text, or CSV files to ground the assistant's answers.",
+        help="Upload PDF, text, CSV, or image files to ground the assistant's answers.",
     )
     clear_docs = st.button("Clear document context")
     reset_button = st.button("Reset conversation", type="primary")
@@ -282,21 +333,21 @@ if "uploaded_documents" not in st.session_state:
 if "document_errors" not in st.session_state:
     st.session_state.document_errors = []
 
-if uploaded_files is not None:
-    documents, doc_errors = prepare_documents(uploaded_files)
-    st.session_state.uploaded_documents = documents
-    st.session_state.document_errors = doc_errors
-
-if clear_docs:
-    st.session_state.uploaded_documents = []
-    st.session_state.document_errors = []
-
 if ("genai_client" not in st.session_state) or (st.session_state.get("_last_key") != google_api_key):
     st.session_state.genai_client = genai.Client(api_key=google_api_key)
     st.session_state._last_key = google_api_key
     st.session_state.pop("chat", None)
     st.session_state.pop("messages", None)
     st.session_state.pop("memory_notes", None)
+
+if uploaded_files is not None:
+    documents, doc_errors = prepare_documents(uploaded_files, st.session_state.genai_client)
+    st.session_state.uploaded_documents = documents
+    st.session_state.document_errors = doc_errors
+
+if clear_docs:
+    st.session_state.uploaded_documents = []
+    st.session_state.document_errors = []
 
 profile_signature = "|".join(
     [
