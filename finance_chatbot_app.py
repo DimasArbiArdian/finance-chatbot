@@ -8,7 +8,7 @@ from google import genai
 from PyPDF2 import PdfReader
 
 st.set_page_config(
-    page_title="Gemini Financial Consultant",
+    page_title="Financial Consultant",
     page_icon="💼",
     layout="wide",
 )
@@ -388,8 +388,8 @@ if document_errors:
 
 hero_col, focus_col = st.columns([2, 1])
 with hero_col:
-    st.title("Gemini Financial Consultation Studio")
-    st.caption("Configurable AI advisor powered by Google Gemini models")
+    st.title("Financial Consultation Assistant 💼")
+    st.caption("Solve money challenges with expert AI guidance.")
     st.subheader(use_case)
     st.write(selected_case["tagline"])
 
