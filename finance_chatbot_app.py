@@ -103,7 +103,7 @@ TIME_HORIZONS = ["Immediate", "30 Days", "Quarter", "Annual", "Multi-Year"]
 
 UPLOADABLE_TYPES = ["pdf", "txt", "md", "csv", "png", "jpg", "jpeg", "webp"]
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
-IMAGE_CAPTION_MODEL = "gemini-1.5-flash"
+IMAGE_CAPTION_MODEL = "gemini-1.5-flash-latest"
 MAX_DOCUMENT_CHARS = 6000
 DOCUMENT_PREVIEW_CHARS = 600
 CSV_PREVIEW_ROWS = 80
@@ -117,48 +117,63 @@ def truncate_text(text: str, max_chars: int) -> Tuple[str, bool]:
 
 
 
-def describe_image_bytes(client, data: bytes, mime_type: str) -> tuple[str, str | None]:
+def describe_image_bytes(client, data: bytes, mime_type: str, model_hint: str | None = None) -> tuple[str, str | None]:
     if client is None:
         return "", "No Google client available to interpret the image."
     payload = base64.b64encode(data).decode("utf-8")
-    try:
-        response = client.models.generate_content(
-            model=IMAGE_CAPTION_MODEL,
-            contents=[
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": (
-                                "Summarise this image focusing on financial data, text, or cues that could help a "
-                                "financial advisor understand the user's situation. Respond with concise bullet "
-                                "points and include any legible figures."
-                            )
-                        },
-                        {"inline_data": {"mime_type": mime_type, "data": payload}},
-                    ],
-                }
-            ],
-        )
-        if hasattr(response, "text") and response.text:
-            return response.text.strip(), None
-        candidates = getattr(response, "candidates", None)
-        if candidates:
-            for candidate in candidates:
-                content = getattr(candidate, "content", None)
-                parts = getattr(content, "parts", None) if content else None
-                if parts:
-                    text_parts = [getattr(part, "text", "") for part in parts]
-                    summary = "\n".join(p for p in text_parts if p)
 
-                    if summary.strip():
-                        return summary.strip(), None
-        return "", "Image analysis returned no text."
-    except Exception as exc:
-        return "", f"Could not interpret image: {exc}"
+    model_sequence: list[str] = []
+    if IMAGE_CAPTION_MODEL:
+        model_sequence.append(IMAGE_CAPTION_MODEL)
+    if model_hint and model_hint not in model_sequence:
+        model_sequence.append(model_hint)
+    fallback_model = "gemini-1.5-pro-latest"
+    if fallback_model not in model_sequence:
+        model_sequence.append(fallback_model)
 
+    last_error: str | None = None
+    for model_name in model_sequence:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": (
+                                    "Summarise this image focusing on financial data, text, or cues that could help a "
+                                    "financial advisor understand the user's situation. Respond with concise bullet "
+                                    "points and include any legible figures."
+                                )
+                            },
+                            {"inline_data": {"mime_type": mime_type, "data": payload}},
+                        ],
+                    }
+                ],
+            )
+            if hasattr(response, "text") and response.text:
+                return response.text.strip(), None
+            candidates = getattr(response, "candidates", None)
+            if candidates:
+                for candidate in candidates:
+                    content = getattr(candidate, "content", None)
+                    parts = getattr(content, "parts", None) if content else None
+                    if parts:
+                        text_parts = [getattr(part, "text", "") for part in parts]
+                        summary = "\n".join(p for p in text_parts if p)
 
-def extract_text_from_file(uploaded_file, client=None) -> Tuple[str, bool, str | None]:
+                        if summary.strip():
+                            return summary.strip(), None
+        except Exception as exc:
+            last_error = str(exc)
+            if "NOT_FOUND" not in last_error and "unsupported" not in last_error.lower():
+                return "", f"Could not interpret image: {exc}"
+    if last_error:
+        return "", f"Could not interpret image: {last_error}"
+    return "", "Image analysis returned no text."
+
+def extract_text_from_file(uploaded_file, client=None, model_hint: str | None = None) -> Tuple[str, bool, str | None]:
     suffix = Path(uploaded_file.name).suffix.lower()
     try:
         data = uploaded_file.read()
@@ -183,7 +198,7 @@ def extract_text_from_file(uploaded_file, client=None) -> Tuple[str, bool, str |
                 preview += "\n..."
             text = preview
         elif suffix in IMAGE_TYPES:
-            summary, image_error = describe_image_bytes(client, data, IMAGE_TYPES[suffix])
+            summary, image_error = describe_image_bytes(client, data, IMAGE_TYPES[suffix], model_hint)
             if image_error:
                 return "", False, image_error
             text = summary
@@ -200,11 +215,11 @@ def extract_text_from_file(uploaded_file, client=None) -> Tuple[str, bool, str |
     return truncated_text, truncated, None
 
 
-def prepare_documents(files, client) -> Tuple[List[dict], List[str]]:
+def prepare_documents(files, client, model_hint: str | None = None) -> Tuple[List[dict], List[str]]:
     documents = []
     errors = []
     for uploaded_file in files:
-        content, truncated, error = extract_text_from_file(uploaded_file, client)
+        content, truncated, error = extract_text_from_file(uploaded_file, client, model_hint)
         if error:
             errors.append(f"{uploaded_file.name}: {error}")
             continue
@@ -413,7 +428,7 @@ with st.chat_message("assistant"):
     clear_docs = st.button("Clear document context", key="chat_clear_docs")
 
 if uploaded_files:
-    documents, doc_errors = prepare_documents(uploaded_files, st.session_state.genai_client)
+    documents, doc_errors = prepare_documents(uploaded_files, st.session_state.genai_client, model_name)
     st.session_state.uploaded_documents = documents
     st.session_state.document_errors = doc_errors
 
