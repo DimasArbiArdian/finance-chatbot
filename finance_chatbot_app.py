@@ -1,5 +1,10 @@
+import io
+from pathlib import Path
+from typing import List, Tuple
+
 import streamlit as st
 from google import genai
+from PyPDF2 import PdfReader
 
 st.set_page_config(
     page_title="Gemini Financial Consultant",
@@ -95,8 +100,87 @@ LANGUAGE_STYLES = {
 
 TIME_HORIZONS = ["Immediate", "30 Days", "Quarter", "Annual", "Multi-Year"]
 
+UPLOADABLE_TYPES = ["pdf", "txt", "md", "csv"]
+MAX_DOCUMENT_CHARS = 6000
+DOCUMENT_PREVIEW_CHARS = 600
+CSV_PREVIEW_ROWS = 80
 
-def build_persona_prompt(*, use_case, tone, knowledge_domains, risk_band, horizon, include_actions, include_disclaimer, creativity_level):
+
+def truncate_text(text: str, max_chars: int) -> Tuple[str, bool]:
+    if len(text) <= max_chars:
+        return text, False
+    return text[:max_chars], True
+
+
+def extract_text_from_file(uploaded_file) -> Tuple[str, bool, str | None]:
+    suffix = Path(uploaded_file.name).suffix.lower()
+    try:
+        data = uploaded_file.read()
+        uploaded_file.seek(0)
+    except Exception as exc:
+        return "", False, f"Could not read file bytes: {exc}"
+
+    if not data:
+        return "", False, "File is empty."
+
+    try:
+        if suffix == ".pdf":
+            reader = PdfReader(io.BytesIO(data))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        elif suffix in {".txt", ".md"}:
+            text = data.decode("utf-8", errors="ignore")
+        elif suffix == ".csv":
+            decoded = data.decode("utf-8", errors="ignore")
+            lines = decoded.splitlines()
+            preview = "\n".join(lines[:CSV_PREVIEW_ROWS])
+            if len(lines) > CSV_PREVIEW_ROWS:
+                preview += "\n..."
+            text = preview
+        else:
+            return "", False, f"Unsupported file type: {suffix or 'unknown'}"
+    except Exception as exc:
+        return "", False, f"Could not parse file: {exc}"
+
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return "", False, "No readable text found in the file."
+
+    truncated_text, truncated = truncate_text(cleaned, MAX_DOCUMENT_CHARS)
+    return truncated_text, truncated, None
+
+
+def prepare_documents(files) -> Tuple[List[dict], List[str]]:
+    documents = []
+    errors = []
+    for uploaded_file in files:
+        content, truncated, error = extract_text_from_file(uploaded_file)
+        if error:
+            errors.append(f"{uploaded_file.name}: {error}")
+            continue
+        preview, _ = truncate_text(content, DOCUMENT_PREVIEW_CHARS)
+        documents.append(
+            {
+                "name": uploaded_file.name,
+                "content": content,
+                "preview": preview,
+                "truncated": truncated,
+                "char_count": len(content),
+            }
+        )
+    return documents, errors
+
+
+def build_persona_prompt(
+    *,
+    use_case,
+    tone,
+    knowledge_domains,
+    risk_band,
+    horizon,
+    include_actions,
+    include_disclaimer,
+    creativity_level,
+):
     case = USE_CASES[use_case]
     knowledge_text = ", ".join(knowledge_domains) if knowledge_domains else "general financial guidance"
     creativity_modes = {
@@ -131,12 +215,18 @@ def build_persona_prompt(*, use_case, tone, knowledge_domains, risk_band, horizo
     return "\n".join(guidelines)
 
 
-
-
-def build_structured_prompt(*, persona_prompt, user_message, memory_notes):
+def build_structured_prompt(
+    *,
+    persona_prompt,
+    user_message,
+    memory_notes,
+    documents,
+):
     sections = [persona_prompt]
     if memory_notes:
         sections.append("Session memory: key user preferences so far -> " + "; ".join(memory_notes))
+    if documents:
+        sections.append("Reference documents supplied by the user:\n" + "\n\n".join(documents))
     sections.append("User request:\n" + user_message)
     sections.append(
         "Response format:\n"
@@ -148,13 +238,21 @@ def build_structured_prompt(*, persona_prompt, user_message, memory_notes):
     )
     return "\n\n".join(sections)
 
+
 with st.sidebar:
     st.header("Assistant Settings")
     google_api_key = st.text_input("Google AI API Key", type="password")
     model_name = st.selectbox("Gemini Model", MODEL_OPTIONS, index=0)
     use_case = st.selectbox("Financial Playbook", list(USE_CASES.keys()))
     tone = st.selectbox("Language Style", list(LANGUAGE_STYLES.keys()), index=1)
-    creativity_slider = st.slider("Creativity Bias", 0.0, 1.0, 0.4, 0.05, help="Lower values force deterministic analysis, higher values allow richer storytelling.")
+    creativity_slider = st.slider(
+        "Creativity Bias",
+        0.0,
+        1.0,
+        0.4,
+        0.05,
+        help="Lower values force deterministic analysis, higher values allow richer storytelling.",
+    )
     selected_domains = st.multiselect(
         "Knowledge Modules",
         KNOWLEDGE_OPTIONS,
@@ -165,12 +263,33 @@ with st.sidebar:
     include_actions = st.toggle("Include actionable checklist", value=True)
     include_disclaimer = st.toggle("Include compliance reminder", value=True)
     enable_memory = st.toggle("Enable session memory", value=True)
+    uploaded_files = st.file_uploader(
+        "Attach reference documents",
+        type=UPLOADABLE_TYPES,
+        accept_multiple_files=True,
+        help="Upload PDF, text, or CSV files to ground the assistant's answers.",
+    )
+    clear_docs = st.button("Clear document context")
     reset_button = st.button("Reset conversation", type="primary")
 
 
 if not google_api_key:
     st.info("Add your Google AI API key in the sidebar to start the consultation.", icon="ℹ️")
     st.stop()
+
+if "uploaded_documents" not in st.session_state:
+    st.session_state.uploaded_documents = []
+if "document_errors" not in st.session_state:
+    st.session_state.document_errors = []
+
+if uploaded_files is not None:
+    documents, doc_errors = prepare_documents(uploaded_files)
+    st.session_state.uploaded_documents = documents
+    st.session_state.document_errors = doc_errors
+
+if clear_docs:
+    st.session_state.uploaded_documents = []
+    st.session_state.document_errors = []
 
 if ("genai_client" not in st.session_state) or (st.session_state.get("_last_key") != google_api_key):
     st.session_state.genai_client = genai.Client(api_key=google_api_key)
@@ -212,6 +331,11 @@ if reset_button:
 
 selected_case = USE_CASES[use_case]
 
+document_errors = st.session_state.document_errors
+if document_errors:
+    for error in document_errors:
+        st.error(error)
+
 hero_col, focus_col = st.columns([2, 1])
 with hero_col:
     st.title("Gemini Financial Consultation Studio")
@@ -241,11 +365,25 @@ with config_col:
     st.markdown(f"- Planning horizon: {planning_horizon}")
     st.markdown(f"- Session memory: {'enabled' if enable_memory else 'disabled'}")
 
+if st.session_state.uploaded_documents:
+    with st.expander("Attached document excerpts", expanded=False):
+        for doc in st.session_state.uploaded_documents:
+            meta = f"**{doc['name']}** · {doc['char_count']} characters"
+            if doc["truncated"]:
+                meta += " (truncated)"
+            st.markdown(meta)
+            st.code(doc["preview"], language="markdown")
+
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 user_prompt = st.chat_input("Share a financial challenge, goal, or question...")
+
+document_context = [
+    f"Document: {doc['name']}{' (truncated)' if doc['truncated'] else ''}\n{doc['content']}"
+    for doc in st.session_state.uploaded_documents
+]
 
 if user_prompt:
     st.session_state.messages.append({"role": "user", "content": user_prompt})
@@ -271,6 +409,7 @@ if user_prompt:
         persona_prompt=persona_prompt,
         user_message=user_prompt,
         memory_notes=st.session_state.memory_notes if enable_memory else [],
+        documents=document_context,
     )
 
     try:
@@ -287,4 +426,3 @@ if user_prompt:
 if enable_memory and st.session_state.memory_notes:
     with st.expander("Session memory snapshot", expanded=False):
         st.write("\n".join(st.session_state.memory_notes))
-

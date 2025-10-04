@@ -8,6 +8,7 @@ An AI-powered financial consultation workspace built with Streamlit and Google G
 - Uses Google Gemini (`google-genai`) for natural language understanding and generation.
 - Four pre-built financial playbooks that align with common chatbot use cases: retail banking concierge, financial literacy coach, travel budget strategist, and productivity & savings partner.
 - Rich parameter controls for tone, knowledge domains, risk appetite, planning horizon, actionable outputs, compliance reminders, and session memory.
+- Upload PDF, text, or CSV files so the assistant can cite information directly from user-provided material.
 - Prompt orchestration that injects the selected configuration into every Gemini call to keep replies on-brief.
 - Session memory snapshot so the bot can recall recent user goals when enabled.
 
@@ -50,6 +51,11 @@ Open the displayed local URL in your browser. Add your Google API key in the sid
 - **Compliance reminder:** Optional closing disclaimer for regulated contexts.
 - **Session memory:** Stores up to five recent user prompts to maintain continuity.
 - **Creativity bias:** Adjusts how exploratory or deterministic the assistant should be.
+
+### Working with Uploaded Documents
+- Supported formats: PDF, TXT/Markdown, and CSV.
+- Each file is trimmed to the first ~6,000 characters to protect model context limits; the UI shows whether content was truncated.
+- Use the **Clear document context** button in the sidebar to remove uploaded references without resetting the conversation.
 
 ## Deployment Notes
 - The project is ready for GitHub. Update the repository URL above after pushing.
