@@ -9,8 +9,8 @@ An AI-powered financial consultation workspace built with Streamlit and Google G
 - Four pre-built financial playbooks that align with common chatbot use cases: retail banking concierge, financial literacy coach, travel budget strategist, and productivity & savings partner.
 - Rich parameter controls for tone, knowledge domains, risk appetite, planning horizon, actionable outputs, compliance reminders, and session memory.
 - Upload PDF, text, CSV, or image files so the assistant can cite information directly from user-provided material.
-- Switch between light and dark themes from the sidebar to match your workspace.
-- Built-in English ↔ Indonesian translator powered by Gemini for quick bilingual responses.
+- Switch between system, light, and dark themes from the sidebar to match your workspace.
+- Toggle the interface language between English and Indonesian; responses follow the selected language.
 - Prompt orchestration that injects the selected configuration into every Gemini call to keep replies on-brief.
 - Session memory snapshot so the bot can recall recent user goals when enabled.
 
@@ -54,10 +54,10 @@ Open the displayed local URL in your browser. Add your Google API key in the sid
 - **Session memory:** Stores up to five recent user prompts to maintain continuity.
 - **Creativity bias:** Adjusts how exploratory or deterministic the assistant should be.
 
-### Theme & Translation
+### Theme & Language
 - Choose **Theme** in the sidebar to toggle between system default, light, and dark palettes.
-- Open the **Translation helper** sidebar expander to convert text between English and Indonesian; the translation result stays available until you clear it.
-- Translated text uses Gemini's `gemini-1.5-flash-latest` model to keep terminology financially accurate.
+- Set **Language** to English or Indonesian; the UI labels and assistant replies switch instantly.
+- Language-aware prompts ensure Gemini responds with terminology appropriate for the selected locale.
 
 ### Working with Uploaded Documents
 - Supported formats: PDF, TXT/Markdown, CSV, and common image types (PNG, JPG, WEBP).
